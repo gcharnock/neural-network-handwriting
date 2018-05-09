@@ -1,0 +1,6 @@
+[package]
+name = "neural_network_handwriting"
+version = "0.1.0"
+authors = ["Gareth Charnock <gareth.charnock@zerolight.com>"]
+
+[dependencies]
