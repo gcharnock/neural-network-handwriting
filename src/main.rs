@@ -212,7 +212,8 @@ mod data {
     pub struct TrainingData {
         pub rows: usize,
         pub cols: usize,
-        pub data: Vec<Vec<u8>>
+        pub data: Vec<Vec<u8>>,
+        pub labels: Vec<u8>
     }
 
     impl TrainingData {
@@ -227,9 +228,17 @@ mod data {
     }
 
     pub fn read_training_data() -> TrainingData {
-        let mut file = File::open("data/train-images-idx3-ubyte").unwrap();
+        let mut label_file = File::open("data/train-labels-idx1-ubyte").unwrap();
+        let label_magic_number = label_file.read_i32::<BigEndian>().unwrap();
+        let label_item_count = label_file.read_i32::<BigEndian>().unwrap() as usize;
 
-        let mut string = String::new();
+        let mut label_out = Vec::<u8>::with_capacity(label_item_count);
+
+        if label_magic_number != 2049 {
+            panic!("did got get expected magic number from file. Got {}", label_magic_number);
+        }
+
+        let mut file = File::open("data/train-images-idx3-ubyte").unwrap();
         let magic_number = file.read_i32::<BigEndian>().unwrap();
         let item_count = file.read_i32::<BigEndian>().unwrap() as usize;
         let rows = file.read_i32::<BigEndian>().unwrap() as usize;
@@ -238,7 +247,11 @@ mod data {
         let mut out = Vec::<Vec<u8>>::with_capacity(item_count);
 
         if magic_number != 2051 {
-            panic!("did got get expected magic number from file")
+            panic!("did got get expected magic number from file");
+        }
+
+        if label_item_count != item_count {
+            panic!("item counts did not match between data and label file");
         }
 
         println!("item count = {}, rows = {}, cols = {}", item_count, rows, cols);
@@ -249,15 +262,20 @@ mod data {
             if bytes_read != pixels {
                 panic!("Unable to read full image (read {}, expected {})", bytes_read, pixels);
             }
-            if i < 10 {
+
+            let label = label_file.read_u8().unwrap();
+            if i < 3 {
+                println!("should be {}", label);
                 print_image(cols, &data);
             }
             out.push(data);
+            label_out.push(label);
         }
         return TrainingData {
             rows,
             cols,
-            data: out
+            data: out,
+            labels: label_out
         }
     }
     pub fn print_image(cols: usize, image: &Vec<u8>) {
@@ -281,6 +299,19 @@ mod data {
 
 }
 
+fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
+    let label = label as usize;
+    let mut total = 0.0;
+    for i in 0..output.len() {
+        if(i == label) {
+            total += (output[i] - 1.0) * (output[i] - 1.0);
+        } else {
+            total += output[i] * output[i];
+        }
+    }
+    return total;
+}
+
 fn main() {
     let training_data = data::read_training_data();
     let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30);
@@ -293,7 +324,7 @@ fn main() {
         for c in output.iter() {
             print!("{} ", c);
         }
-        println!();
+        println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output));
     }
 }
 
