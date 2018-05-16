@@ -1,6 +1,6 @@
-fn main() {
-    println!("Hello, world!");
-}
+
+extern crate byteorder;
+
 
 mod algebra {
     pub trait Zero {
@@ -75,7 +75,7 @@ mod network {
     use real::sigmod;
     use real::Real;
 
-    struct NetworkLayer<T> {
+    pub struct NetworkLayer<T> {
         num_inputs: usize,
         num_outputs: usize,
 
@@ -86,7 +86,7 @@ mod network {
     impl<T: Clone + AddAssign + Display> NetworkLayer<T>
         where
             T: Real {
-        fn new(num_inputs: usize, num_outputs: usize) -> NetworkLayer<T> {
+        pub fn new(num_inputs: usize, num_outputs: usize) -> NetworkLayer<T> {
             return NetworkLayer {
                 num_inputs,
                 num_outputs,
@@ -96,7 +96,7 @@ mod network {
             };
         }
 
-        fn eval_layer(&self, inputs: &Vec<T>) -> Vec<T> {
+        pub fn eval_layer(&self, inputs: &Vec<T>) -> Vec<T> {
             if self.num_inputs != inputs.len() {
                 panic!("incorrect number of inputs to layer");
             }
@@ -204,4 +204,96 @@ mod linear {
     }
 }
 
+mod data {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+    use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+
+    pub struct TrainingData {
+        pub rows: usize,
+        pub cols: usize,
+        pub data: Vec<Vec<u8>>
+    }
+
+    impl TrainingData {
+        pub fn len(&self) -> usize {
+            return self.rows * self.cols;
+        }
+
+        pub fn unpack_layer_to_f32(&self, layer_number: usize) -> Vec<f32> {
+            let layer = &self.data[layer_number];
+            return layer.iter().map(|v| *v as f32).collect();
+        }
+    }
+
+    pub fn read_training_data() -> TrainingData {
+        let mut file = File::open("data/train-images-idx3-ubyte").unwrap();
+
+        let mut string = String::new();
+        let magic_number = file.read_i32::<BigEndian>().unwrap();
+        let item_count = file.read_i32::<BigEndian>().unwrap() as usize;
+        let rows = file.read_i32::<BigEndian>().unwrap() as usize;
+        let cols = file.read_i32::<BigEndian>().unwrap() as usize;
+        let pixels = rows * cols;
+        let mut out = Vec::<Vec<u8>>::with_capacity(item_count);
+
+        if magic_number != 2051 {
+            panic!("did got get expected magic number from file")
+        }
+
+        println!("item count = {}, rows = {}, cols = {}", item_count, rows, cols);
+        for i in 0..item_count {
+            let mut data = Vec::<u8>::with_capacity(pixels);
+            unsafe { data.set_len(pixels); }
+            let bytes_read = file.read(&mut data[..]).unwrap();
+            if bytes_read != pixels {
+                panic!("Unable to read full image (read {}, expected {})", bytes_read, pixels);
+            }
+            if i < 10 {
+                print_image(cols, &data);
+            }
+            out.push(data);
+        }
+        return TrainingData {
+            rows,
+            cols,
+            data: out
+        }
+    }
+    pub fn print_image(cols: usize, image: &Vec<u8>) {
+        let rows = image.len() / cols;
+        for row in 0..rows {
+            for col in 0..cols {
+                let v = image[cols * row + col];
+                if v > 240 {
+                    print!("#");
+                } else if v > 220 {
+                    print!("*");
+                } else if v > 128 {
+                    print!(".");
+                } else {
+                    print!(" ");
+                }
+            }
+            println!();
+        }
+    }
+
+}
+
+fn main() {
+    let training_data = data::read_training_data();
+    let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30);
+    let hidden_to_output = network::NetworkLayer::<f32>::new(30, 10);
+
+    for i in 0..4 {
+        let this_data = training_data.unpack_layer_to_f32(i);
+        let hidden = input_to_hidden.eval_layer(&this_data);
+        let output = hidden_to_output.eval_layer(&hidden);
+        for c in output.iter() {
+            print!("{} ", c);
+        }
+        println!();
+    }
+}
 
