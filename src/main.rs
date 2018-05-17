@@ -1,6 +1,7 @@
 
 extern crate byteorder;
-
+extern crate rand;
+extern crate num_traits;
 
 mod algebra {
     pub trait Zero {
@@ -38,7 +39,6 @@ mod algebra {
 
 mod real {
     use std::f32;
-    use std::ops;
     use algebra::One;
     use algebra::Zero;
     use std::ops::Neg;
@@ -66,14 +66,15 @@ mod real {
 
 mod network {
     use linear::Matrix;
-    use std::ops::Mul;
     use std::ops::AddAssign;
-    use std::ops::IndexMut;
     use std::fmt::Display;
-    use algebra::Zero;
-    use algebra::One;
-    use real::sigmod;
-    use real::Real;
+    use num_traits::{Float, NumCast};
+    use rand::{Rng, Rand};
+
+    pub fn sigmod<T: Float + NumCast>(x: T) -> T {
+        let one: T = NumCast::from(1).unwrap();
+        one/ (one + Float::exp(-x))
+    }
 
     pub struct NetworkLayer<T> {
         num_inputs: usize,
@@ -83,15 +84,18 @@ mod network {
         biases: Vec<T>,
     }
 
-    impl<T: Clone + AddAssign + Display> NetworkLayer<T>
-        where
-            T: Real {
-        pub fn new(num_inputs: usize, num_outputs: usize) -> NetworkLayer<T> {
+    impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
+        where {
+        pub fn new<R: Rng>(num_inputs: usize, num_outputs: usize, gen: &mut R) -> NetworkLayer<T> {
+            let mut gen_closure = || {
+                let r: T = Rand::rand(gen);
+                r - NumCast::from(0.5).unwrap()
+            };
             return NetworkLayer {
                 num_inputs,
                 num_outputs,
 
-                weights: Matrix::new(num_outputs, num_inputs),
+                weights: Matrix::new(num_outputs, num_inputs, &mut gen_closure),
                 biases: vec![T::zero(); num_inputs],
             };
         }
@@ -108,14 +112,13 @@ mod network {
 }
 
 mod linear {
-    use algebra::Zero;
+    use num_traits::Float;
     use std::ops::Mul;
     use std::ops::Add;
     use std::ops::AddAssign;
-    use std::ops::IndexMut;
     use std::fmt::Display;
 
-    pub fn vec_add<T: Add + Zero + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T>
+    pub fn vec_add<T: Add + Float + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T>
         where
             T: Add<Output=T> {
         if a.len() != b.len() {
@@ -135,15 +138,18 @@ mod linear {
         values: Vec<T>,
     }
 
-    impl<T: Clone + Mul + AddAssign + Zero + Display> Matrix<T>
+    impl<T: Clone + Mul + AddAssign + Float + Display> Matrix<T>
         where
             T: Mul<Output=T> {
-        pub fn new(rows: usize, cols: usize) -> Matrix<T> {
-            return Matrix {
-                rows,
-                cols,
-                values: vec![T::zero(); rows * cols],
-            };
+        pub fn new<F>(rows: usize, cols: usize, init: &mut F) -> Matrix<T>
+            where F: FnMut() -> T {
+            let len = rows * cols;
+            let mut values = Vec::with_capacity(len);
+            for _i in 0..len {
+                let v = init();
+                values.push(v);
+            }
+            Matrix { rows, cols, values }
         }
 
         fn set(&mut self, row: usize, col: usize, value: T) {
@@ -184,7 +190,7 @@ mod linear {
 
         #[test]
         fn matrix_vector_multiplication() {
-            let mut mat = Matrix::<i32>::new(2, 3);
+            let mut mat = Matrix::<i32>::new(2, 3, || 0);
             mat.set(0, 0, 1);
             mat.set(0, 1, 2);
             mat.set(0, 2, 3);
@@ -206,8 +212,8 @@ mod linear {
 
 mod data {
     use std::fs::File;
-    use std::io::{Read, Seek, SeekFrom};
-    use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+    use std::io::{Read};
+    use byteorder::{BigEndian, ReadBytesExt};
 
     pub struct TrainingData {
         pub rows: usize,
@@ -303,7 +309,7 @@ fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
     let label = label as usize;
     let mut total = 0.0;
     for i in 0..output.len() {
-        if(i == label) {
+        if i == label {
             total += (output[i] - 1.0) * (output[i] - 1.0);
         } else {
             total += output[i] * output[i];
@@ -313,9 +319,10 @@ fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
 }
 
 fn main() {
+    let mut rng = rand::thread_rng();
     let training_data = data::read_training_data();
-    let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30);
-    let hidden_to_output = network::NetworkLayer::<f32>::new(30, 10);
+    let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30, &mut rng);
+    let hidden_to_output = network::NetworkLayer::<f32>::new(30, 10, &mut rng);
 
     for i in 0..4 {
         let this_data = training_data.unpack_layer_to_f32(i);

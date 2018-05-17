@@ -6,3 +6,5 @@ authors = ["Gareth Charnock <gareth.charnock@zerolight.com>"]
 [dependencies]
 
 byteorder = "1.2.3"
+rand = "0.4.2"
+num-traits = "0.2.4"
