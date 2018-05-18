@@ -108,6 +108,11 @@ mod network {
             let propagated = self.weights.multiply_vec(inputs);
             return propagated.into_iter().map(sigmod).collect();
         }
+
+        pub fn back_propigate_layer(&self, output: &Vec<T>, expected: &Vec<T>) {
+            for i in 0..self.num_outputs {
+            }
+        }
     }
 }
 
@@ -318,6 +323,18 @@ fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
     return total;
 }
 
+fn make_expected(label: u8) -> Vec<f32> {
+    let mut expected = Vec::with_capacity(10);
+    for i in 0..10 {
+        if label == i {
+            expected.push(1.0);
+        } else {
+            expected.push(0.0);
+        }
+    }
+    return expected;
+}
+
 fn main() {
     let mut rng = rand::thread_rng();
     let training_data = data::read_training_data();
@@ -332,6 +349,8 @@ fn main() {
             print!("{} ", c);
         }
         println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output));
+        let expected = make_expected(training_data.labels[i]);
+        hidden_to_output.back_propigate_layer(&output, &expected);
     }
 }
 
