@@ -109,8 +109,29 @@ mod network {
             return propagated.into_iter().map(sigmod).collect();
         }
 
-        pub fn back_propigate_layer(&self, output: &Vec<T>, expected: &Vec<T>) {
-            for i in 0..self.num_outputs {
+        pub fn back_propagate_layer(&self, output: &Vec<T>, expected: &Vec<T>) {
+            //j iterates the input layer, k iterates the output layer
+
+            //Compute the output layer error
+            print!("computing error for input layer ");
+            let mut sigma_l_plus_1 = Vec::with_capacity(self.num_outputs);
+            for k in 0..self.num_outputs {
+                let exp_x = Float::exp(-output[k]);
+                let one_minus_exp_x = T::one() - exp_x;
+                let sigma_l_plus_1_k = - exp_x/one_minus_exp_x/one_minus_exp_x;
+                print!("{} ", sigma_l_plus_1_k);
+                sigma_l_plus_1.push(sigma_l_plus_1_k);
+            }
+            println!();
+            //Compute the input layer error
+            let mut sigma_l = Vec::<T>::with_capacity(self.num_inputs);
+            for j in 0..self.num_inputs {
+                let mut total = T::zero();
+                for k in 0..self.num_outputs {
+                    total += self.weights.get(k, j) * sigma_l_plus_1[k];
+                }
+                let sigmoid_prime_of_z_l_j = - exp_x/one_minus_exp_x/one_minus_exp_x;
+                sigma_l.push(total);
             }
         }
     }
@@ -161,7 +182,7 @@ mod linear {
             self.values[col * self.rows + row] = value;
         }
 
-        fn get(&self, row: usize, col: usize) -> T {
+        pub fn get(&self, row: usize, col: usize) -> T {
             self.values[col * self.rows + row].clone()
         }
 
@@ -350,7 +371,7 @@ fn main() {
         }
         println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output));
         let expected = make_expected(training_data.labels[i]);
-        hidden_to_output.back_propigate_layer(&output, &expected);
+        hidden_to_output.back_propagate_layer(&output, &expected);
     }
 }
 
