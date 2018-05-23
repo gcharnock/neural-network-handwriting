@@ -2,44 +2,8 @@ extern crate byteorder;
 extern crate rand;
 extern crate num_traits;
 
-mod algebra {
-    pub trait Zero {
-        fn zero() -> Self;
-    }
-
-    impl Zero for f32 {
-        fn zero() -> f32 {
-            return 0.0;
-        }
-    }
-
-    impl Zero for i32 {
-        fn zero() -> i32 {
-            return 0;
-        }
-    }
-
-    pub trait One {
-        fn one() -> Self;
-    }
-
-    impl One for f32 {
-        fn one() -> f32 {
-            return 1.0;
-        }
-    }
-
-    impl One for i32 {
-        fn one() -> i32 {
-            return 1;
-        }
-    }
-}
-
 mod real {
     use std::f32;
-    use algebra::One;
-    use algebra::Zero;
     use std::ops::Neg;
     use std::ops::Add;
     use std::ops::Div;
@@ -47,7 +11,7 @@ mod real {
     use num_traits::Float;
 
     pub trait Real
-        where Self: Sized + Neg<Output=Self> + One + Zero +
+        where Self: Sized + Neg<Output=Self> +
         Add<Output=Self> + Mul<Output=Self> + Div<Output=Self> {
         fn exp(x: Self) -> Self;
     }
@@ -58,7 +22,7 @@ mod real {
         }
     }
 
-    pub fn sigmoid<T: Real + Neg + One + Add + Div>(x: T) -> T
+    pub fn sigmoid<T: Real + Float + Neg + Add + Div>(x: T) -> T
         where T: Neg<Output=T> + Add<Output=T> + Div<Output=T> {
         T::one() / (T::one() + Real::exp(-x))
     }
@@ -71,179 +35,8 @@ mod real {
     }
 }
 
-mod network {
-    use linear::Matrix;
-    use std::ops::AddAssign;
-    use std::fmt::Display;
-    use real::sigmoid_prime;
-    use num_traits::{Float, NumCast};
-    use rand::{Rng, Rand};
-
-    pub fn sigmod<T: Float + NumCast>(x: T) -> T {
-        let one: T = NumCast::from(1).unwrap();
-        one / (one + Float::exp(-x))
-    }
-
-    pub struct NetworkLayer<T> {
-        num_inputs: usize,
-        num_outputs: usize,
-
-        weights: Matrix<T>,
-        biases: Vec<T>,
-    }
-
-    impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
-        where {
-        pub fn new<R: Rng>(num_inputs: usize, num_outputs: usize, gen: &mut R) -> NetworkLayer<T> {
-            let mut gen_closure = || {
-                let r: T = Rand::rand(gen);
-                r - NumCast::from(0.5).unwrap()
-            };
-            return NetworkLayer {
-                num_inputs,
-                num_outputs,
-
-                weights: Matrix::new(num_outputs, num_inputs, &mut gen_closure),
-                biases: vec![T::zero(); num_inputs],
-            };
-        }
-
-        pub fn eval_layer(&self, inputs: &Vec<T>) -> Vec<T> {
-            if self.num_inputs != inputs.len() {
-                panic!("incorrect number of inputs to layer");
-            }
-
-            let propagated = self.weights.multiply_vec(inputs);
-            return propagated.into_iter().map(sigmod).collect();
-        }
-
-        pub fn find_output_sigma(&self, output: &Vec<T>, expected: &Vec<T>) -> Vec<T> {
-            //Compute the output layer error
-            let mut sigma_last = Vec::with_capacity(self.num_outputs);
-            for k in 0..self.num_outputs {
-                let exp_x = Float::exp(-output[k]);
-                let one_minus_exp_x = T::one() - exp_x;
-                let sigma_last_k = -exp_x / one_minus_exp_x / one_minus_exp_x;
-                sigma_last.push(sigma_last_k);
-            }
-            return sigma_last;
-        }
-
-        pub fn back_propagate_layer(&self, input: &Vec<T>, sigma_l_plus_1: &Vec<T>, expected: &Vec<T>) -> Vec<T> {
-            //j iterates the input layer, k iterates the output layer
-
-            let mut sigma_l = Vec::<T>::with_capacity(self.num_inputs);
-            for j in 0..self.num_inputs {
-                let mut total = T::zero();
-                for k in 0..self.num_outputs {
-                    total += self.weights.get(k, j) * sigma_l_plus_1[k];
-                }
-                let sigmoid_prime_of_z_l_j = sigmoid_prime(input[j]);
-                sigma_l.push(total);
-            }
-            return sigma_l;
-        }
-    }
-}
-
-mod linear {
-    use num_traits::Float;
-    use std::ops::Mul;
-    use std::ops::Add;
-    use std::ops::AddAssign;
-    use std::fmt::Display;
-
-    pub fn vec_add<T: Add + Float + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T>
-        where
-            T: Add<Output=T> {
-        if a.len() != b.len() {
-            panic!("cannot add vectors of different lengths");
-        }
-
-        let mut out = vec![T::zero(); a.len()];
-        for i in 0..a.len() {
-            out[i] = a[i].clone() + b[i].clone();
-        }
-        return out;
-    }
-
-    pub struct Matrix<T> {
-        cols: usize,
-        rows: usize,
-        values: Vec<T>,
-    }
-
-    impl<T: Clone + Mul + AddAssign + Float + Display> Matrix<T>
-        where
-            T: Mul<Output=T> {
-        pub fn new<F>(rows: usize, cols: usize, init: &mut F) -> Matrix<T>
-            where F: FnMut() -> T {
-            let len = rows * cols;
-            let mut values = Vec::with_capacity(len);
-            for _i in 0..len {
-                let v = init();
-                values.push(v);
-            }
-            Matrix { rows, cols, values }
-        }
-
-        fn set(&mut self, row: usize, col: usize, value: T) {
-            self.values[col * self.rows + row] = value;
-        }
-
-        pub fn get(&self, row: usize, col: usize) -> T {
-            self.values[col * self.rows + row].clone()
-        }
-
-        fn print(&self) {
-            for row in 0..self.rows {
-                for col in 0..self.cols {
-                    print!("{} ", self.get(row, col));
-                }
-                println!();
-            }
-        }
-
-        pub fn multiply_vec(&self, vec: &Vec<T>) -> Vec<T> {
-            if self.cols != vec.len() {
-                panic!("invalid dimentions");
-            }
-            let mut out = vec![T::zero(); self.rows];
-            for col in 0..self.cols {
-                for row in 0..self.rows {
-                    out[row] += self.get(row, col) * vec[col].clone();
-                }
-            }
-            out
-        }
-    }
-
-
-    #[cfg(test)]
-    mod tests {
-        use linear::Matrix;
-
-        #[test]
-        fn matrix_vector_multiplication() {
-            let mut mat = Matrix::<i32>::new(2, 3, || 0);
-            mat.set(0, 0, 1);
-            mat.set(0, 1, 2);
-            mat.set(0, 2, 3);
-            mat.set(1, 0, 4);
-            mat.set(1, 1, 5);
-            mat.set(1, 2, 6);
-
-            let vec: Vec<i32> = vec![1, 2, 3];
-
-            let v_out = mat.multiply_vec(&vec);
-
-            assert_eq!(v_out.len(), 2);
-
-            assert_eq!(v_out[0], 14);
-            assert_eq!(v_out[1], 32);
-        }
-    }
-}
+mod network;
+mod linear;
 
 mod data {
     use std::fs::File;
