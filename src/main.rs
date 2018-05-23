@@ -1,4 +1,3 @@
-
 extern crate byteorder;
 extern crate rand;
 extern crate num_traits;
@@ -45,6 +44,7 @@ mod real {
     use std::ops::Add;
     use std::ops::Div;
     use std::ops::Mul;
+    use num_traits::Float;
 
     pub trait Real
         where Self: Sized + Neg<Output=Self> + One + Zero +
@@ -58,9 +58,16 @@ mod real {
         }
     }
 
-    pub fn sigmod<T: Real + Neg + One + Add + Div>(x: T) -> T
+    pub fn sigmoid<T: Real + Neg + One + Add + Div>(x: T) -> T
         where T: Neg<Output=T> + Add<Output=T> + Div<Output=T> {
         T::one() / (T::one() + Real::exp(-x))
+    }
+
+    pub fn sigmoid_prime<T: Neg + Add + Div + Float>(x: T) -> T
+        where T: Neg<Output=T> + Add<Output=T> + Div<Output=T>  {
+        let exp_neg_x = T::exp(-x);
+        let one_minus_exp_neg_x = T::one() - exp_neg_x;
+        return -exp_neg_x / one_minus_exp_neg_x / one_minus_exp_neg_x;
     }
 }
 
@@ -68,12 +75,13 @@ mod network {
     use linear::Matrix;
     use std::ops::AddAssign;
     use std::fmt::Display;
+    use real::sigmoid_prime;
     use num_traits::{Float, NumCast};
     use rand::{Rng, Rand};
 
     pub fn sigmod<T: Float + NumCast>(x: T) -> T {
         let one: T = NumCast::from(1).unwrap();
-        one/ (one + Float::exp(-x))
+        one / (one + Float::exp(-x))
     }
 
     pub struct NetworkLayer<T> {
@@ -109,30 +117,31 @@ mod network {
             return propagated.into_iter().map(sigmod).collect();
         }
 
-        pub fn back_propagate_layer(&self, output: &Vec<T>, expected: &Vec<T>) {
-            //j iterates the input layer, k iterates the output layer
-
+        pub fn find_output_sigma(&self, output: &Vec<T>, expected: &Vec<T>) -> Vec<T> {
             //Compute the output layer error
-            print!("computing error for input layer ");
-            let mut sigma_l_plus_1 = Vec::with_capacity(self.num_outputs);
+            let mut sigma_last = Vec::with_capacity(self.num_outputs);
             for k in 0..self.num_outputs {
                 let exp_x = Float::exp(-output[k]);
                 let one_minus_exp_x = T::one() - exp_x;
-                let sigma_l_plus_1_k = - exp_x/one_minus_exp_x/one_minus_exp_x;
-                print!("{} ", sigma_l_plus_1_k);
-                sigma_l_plus_1.push(sigma_l_plus_1_k);
+                let sigma_last_k = -exp_x / one_minus_exp_x / one_minus_exp_x;
+                sigma_last.push(sigma_last_k);
             }
-            println!();
-            //Compute the input layer error
+            return sigma_last;
+        }
+
+        pub fn back_propagate_layer(&self, input: &Vec<T>, sigma_l_plus_1: &Vec<T>, expected: &Vec<T>) -> Vec<T> {
+            //j iterates the input layer, k iterates the output layer
+
             let mut sigma_l = Vec::<T>::with_capacity(self.num_inputs);
             for j in 0..self.num_inputs {
                 let mut total = T::zero();
                 for k in 0..self.num_outputs {
                     total += self.weights.get(k, j) * sigma_l_plus_1[k];
                 }
-                let sigmoid_prime_of_z_l_j = - exp_x/one_minus_exp_x/one_minus_exp_x;
+                let sigmoid_prime_of_z_l_j = sigmoid_prime(input[j]);
                 sigma_l.push(total);
             }
+            return sigma_l;
         }
     }
 }
@@ -238,14 +247,14 @@ mod linear {
 
 mod data {
     use std::fs::File;
-    use std::io::{Read};
+    use std::io::Read;
     use byteorder::{BigEndian, ReadBytesExt};
 
     pub struct TrainingData {
         pub rows: usize,
         pub cols: usize,
         pub data: Vec<Vec<u8>>,
-        pub labels: Vec<u8>
+        pub labels: Vec<u8>,
     }
 
     impl TrainingData {
@@ -307,9 +316,10 @@ mod data {
             rows,
             cols,
             data: out,
-            labels: label_out
-        }
+            labels: label_out,
+        };
     }
+
     pub fn print_image(cols: usize, image: &Vec<u8>) {
         let rows = image.len() / cols;
         for row in 0..rows {
@@ -328,8 +338,9 @@ mod data {
             println!();
         }
     }
-
 }
+
+use std::fmt::Display;
 
 fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
     let label = label as usize;
@@ -356,22 +367,49 @@ fn make_expected(label: u8) -> Vec<f32> {
     return expected;
 }
 
+fn print_vector<T: Display>(vec: &Vec<T>) {
+    for c in vec.iter() {
+        print!("{} ", c);
+    }
+}
+
 fn main() {
     let mut rng = rand::thread_rng();
     let training_data = data::read_training_data();
     let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30, &mut rng);
     let hidden_to_output = network::NetworkLayer::<f32>::new(30, 10, &mut rng);
 
-    for i in 0..4 {
+    for i in 0..1 {
         let this_data = training_data.unpack_layer_to_f32(i);
-        let hidden = input_to_hidden.eval_layer(&this_data);
-        let output = hidden_to_output.eval_layer(&hidden);
-        for c in output.iter() {
-            print!("{} ", c);
-        }
-        println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output));
+        let hidden_activation = input_to_hidden.eval_layer(&this_data);
+        let output_activation = hidden_to_output.eval_layer(&hidden_activation);
+
+        print!("output:");
+        print_vector(&output_activation);
+        println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output_activation));
+
         let expected = make_expected(training_data.labels[i]);
-        hidden_to_output.back_propagate_layer(&output, &expected);
+        let sigma_last = hidden_to_output.find_output_sigma(&output_activation, &expected);
+
+        print!("sigma last: ");
+        print_vector(&sigma_last);
+        println!();
+
+        let sigma_hidden =
+            hidden_to_output.back_propagate_layer(&hidden_activation, &sigma_last, &expected);
+
+        print!("sigma hidden: ");
+        print_vector(&sigma_hidden);
+        println!();
+
+        let sigma_first =
+            input_to_hidden.back_propagate_layer(&this_data, &sigma_hidden, &expected);
+
+        print!("sigma first: ");
+        print_vector(&sigma_first);
+        println!();
+
+        println!();
     }
 }
 
