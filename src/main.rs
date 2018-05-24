@@ -174,8 +174,12 @@ fn main() {
 
     for i in 0..1 {
         let this_data = training_data.unpack_layer_to_f32(i);
-        let hidden_activation = input_to_hidden.eval_layer(&this_data);
-        let output_activation = hidden_to_output.eval_layer(&hidden_activation);
+
+        let mut hidden_activation = vec![0.0; input_to_hidden.num_outputs];
+        input_to_hidden.eval_layer(&this_data, &mut hidden_activation);
+
+        let mut output_activation = vec![0.0; input_to_hidden.num_outputs];
+        hidden_to_output.eval_layer(&hidden_activation, &mut output_activation);
 
         print!("output:");
         print_vector(&output_activation);

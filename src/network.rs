@@ -12,8 +12,8 @@ pub fn sigmod<T: Float + NumCast>(x: T) -> T {
 }
 
 pub struct NetworkLayer<T> {
-    num_inputs: usize,
-    num_outputs: usize,
+    pub num_inputs: usize,
+    pub num_outputs: usize,
 
     weights: Matrix<T>,
     biases: Vec<T>,
@@ -37,13 +37,18 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
         };
     }
 
-    pub fn eval_layer(&self, inputs: &Vec<T>) -> Vec<T> {
+    pub fn eval_layer(&self, inputs: &Vec<T>, outputs: &mut Vec<T>) {
         if self.num_inputs != inputs.len() {
             panic!("incorrect number of inputs to layer");
         }
+        if self.num_outputs != outputs.len() {
+            panic!("incorrect number of inputs to layer");
+        }
 
-        let propagated = self.weights.multiply_vec(inputs);
-        return propagated.into_iter().map(sigmod).collect();
+        let propagated = vec![T::zero(), self.num_outputs];
+        self.weights.multiply_vec(inputs, &mut propagated);
+
+        return propagated.into_iter().map(|x|outputs(sigmod(x)));
     }
 
     pub fn find_output_sigma(&self, output: &Vec<T>, expected: &Vec<T>) -> Vec<T> {
@@ -80,21 +85,64 @@ pub struct Network<T> {
     num_outputs: usize,
 
     layers: Vec<NetworkLayer<T>>,
+    z: Vec<Vec<T>>,
     activations: Vec<Vec<T>>,
-    sigmas: Vec<Vec<T>>
+    activation_errors: Vec<Vec<T>>
 }
 
 impl<T: Float> Network<T> {
-    pub fn new() -> Network<T> {
-        panic!("Implement me");
+    pub fn new(layers: Vec<NetworkLayer<T>>) -> Network<T> {
+        let layer_count = layers.len();
+        let num_inputs = layers[0].num_inputs;
+        let num_outputs = layers[layer_count - 1].num_outputs;
+
+        let mut activations = Vec::with_capacity(layers.len() + 1);
+        activations = layers.iter()
+            .map(|layer|vec![0; layer.num_inputs])
+            .collect();
+        activations.push(vec![0, num_outputs]);
+
+        let mut activation_errors = Vec::with_capacity(layers.len() + 1);
+        activation_errors = layers.iter()
+            .map(|layer|vec![0; layer.num_inputs])
+            .collect();
+        activation_errors.push(vec![0, num_outputs]);
+
+
+        let mut z = Vec::with_capacity(layers.len() + 1);
+        layers.iter()
+            .map(|layer|vec![0; layer.num_inputs])
+            .collect();
+        z.push(vec![0, num_outputs]);
+
+        z = layers.iter()
+            .map(|layer|vec![0; layer.num_inputs])
+            .collect();
+        z.push(vec![0, num_outputs]);
+
+        return Network {
+            num_inputs,
+            num_outputs,
+
+            layers,
+            z,
+            activations,
+            activation_errors
+        }
     }
 
-    pub fn set_input_activations(input: &Vec<T>) {
-        panic!("Implement me");
+    pub fn set_input_activations(&mut self, input: &Vec<T>) {
+        if input.len() != self.num_inputs {
+           panic!("wrong length of input activations");
+        }
+        self.activations[0].copy_from_slice(input.as_slice());
     }
 
-    pub fn propagate() {
-        panic!("Implement me");
+    pub fn propagate(&mut self) {
+        for i in 0..self.layers.len() {
+            let layer = self.layers[0];
+            layer.eval_layer();
+        }
     }
 
     pub fn back_propagate() {

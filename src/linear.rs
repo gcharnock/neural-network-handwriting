@@ -55,17 +55,19 @@ impl<T: Clone + Mul + AddAssign + Float + Display> Matrix<T>
         }
     }
 
-    pub fn multiply_vec(&self, vec: &Vec<T>) -> Vec<T> {
+    pub fn multiply_vec(&self, vec: &Vec<T>, out: &mut Vec<T>) {
         if self.cols != vec.len() {
             panic!("invalid dimentions");
         }
-        let mut out = vec![T::zero(); self.rows];
-        for col in 0..self.cols {
-            for row in 0..self.rows {
+        if self.rows != out.len() {
+            panic!("invalid dimentions");
+        }
+        for row in 0..self.rows {
+            out[row] = T::zero();
+            for col in 0..self.cols {
                 out[row] += self.get(row, col) * vec[col].clone();
             }
         }
-        out
     }
 }
 
@@ -85,8 +87,9 @@ mod tests {
         mat.set(1, 2, 6);
 
         let vec: Vec<i32> = vec![1, 2, 3];
+        let mut v_out: Vec<i32> = vec![0, 0];
 
-        let v_out = mat.multiply_vec(&vec);
+        mat.multiply_vec(&vec, &mut v_out);
 
         assert_eq!(v_out.len(), 2);
 
