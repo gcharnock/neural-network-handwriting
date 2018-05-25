@@ -28,7 +28,7 @@ mod real {
     }
 
     pub fn sigmoid_prime<T: Neg + Add + Div + Float>(x: T) -> T
-        where T: Neg<Output=T> + Add<Output=T> + Div<Output=T>  {
+        where T: Neg<Output=T> + Add<Output=T> + Div<Output=T> {
         let exp_neg_x = T::exp(-x);
         let one_minus_exp_neg_x = T::one() - exp_neg_x;
         return -exp_neg_x / one_minus_exp_neg_x / one_minus_exp_neg_x;
@@ -134,6 +134,7 @@ mod data {
 }
 
 use std::fmt::Display;
+use network::{Network, NetworkLayer};
 
 fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
     let label = label as usize;
@@ -169,10 +170,24 @@ fn print_vector<T: Display>(vec: &Vec<T>) {
 fn main() {
     let mut rng = rand::thread_rng();
     let training_data = data::read_training_data();
-    let input_to_hidden = network::NetworkLayer::<f32>::new(training_data.len(), 30, &mut rng);
-    let hidden_to_output = network::NetworkLayer::<f32>::new(30, 10, &mut rng);
+    let input_to_hidden = NetworkLayer::<f32>::new(training_data.len(), 30, &mut rng);
+    let hidden_to_output = NetworkLayer::<f32>::new(30, 10, &mut rng);
+
+    let layers = vec![input_to_hidden, hidden_to_output];
+    let mut network = Network::new(layers);
+
+    network.describe();
 
     for i in 0..1 {
+        let this_data = training_data.unpack_layer_to_f32(i);
+        let expected = make_expected(training_data.labels[i]);
+
+        network.set_input_activations(&this_data);
+        network.propagate();
+        network.back_propagate(&expected);
+    }
+
+    /*for i in 0..1 {
         let this_data = training_data.unpack_layer_to_f32(i);
 
         let mut hidden_activation = vec![0.0; input_to_hidden.num_outputs];
@@ -207,6 +222,6 @@ fn main() {
         println!();
 
         println!();
-    }
+    }*/
 }
 

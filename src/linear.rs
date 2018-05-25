@@ -3,6 +3,7 @@ use std::ops::Mul;
 use std::ops::Add;
 use std::ops::AddAssign;
 use std::fmt::Display;
+use num_traits::Num;
 
 pub fn vec_add<T: Add + Float + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T>
     where
@@ -24,7 +25,7 @@ pub struct Matrix<T> {
     values: Vec<T>,
 }
 
-impl<T: Clone + Mul + AddAssign + Float + Display> Matrix<T>
+impl<T: Clone + Mul + AddAssign + Num + Display> Matrix<T>
     where
         T: Mul<Output=T> {
     pub fn new<F>(rows: usize, cols: usize, init: &mut F) -> Matrix<T>
@@ -78,7 +79,7 @@ mod tests {
 
     #[test]
     fn matrix_vector_multiplication() {
-        let mut mat = Matrix::<i32>::new(2, 3, || 0);
+        let mut mat = Matrix::<i32>::new(2, 3, &mut || 0);
         mat.set(0, 0, 1);
         mat.set(0, 1, 2);
         mat.set(0, 2, 3);
