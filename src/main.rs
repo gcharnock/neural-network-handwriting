@@ -1,3 +1,7 @@
+
+#[cfg_attr(test, macro_use)]
+extern crate assert_approx_eq;
+
 extern crate byteorder;
 extern crate rand;
 extern crate num_traits;
@@ -57,7 +61,7 @@ mod data {
 
         pub fn unpack_layer_to_f32(&self, layer_number: usize) -> Vec<f32> {
             let layer = &self.data[layer_number];
-            return layer.iter().map(|v| *v as f32).collect();
+            return layer.iter().map(|v| (*v as f32/255.0)).collect();
         }
     }
 
@@ -135,6 +139,7 @@ mod data {
 
 use std::fmt::Display;
 use network::{Network, NetworkLayer};
+use linear::print_vector;
 
 fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
     let label = label as usize;
@@ -161,11 +166,6 @@ fn make_expected(label: u8) -> Vec<f32> {
     return expected;
 }
 
-fn print_vector<T: Display>(vec: &Vec<T>) {
-    for c in vec.iter() {
-        print!("{} ", c);
-    }
-}
 
 fn main() {
     let mut rng = rand::thread_rng();
@@ -184,44 +184,20 @@ fn main() {
 
         network.set_input_activations(&this_data);
         network.propagate();
+
+        for activations in network.activations.iter() {
+            print!("activations = ");
+            print_vector(&activations);
+            println!();
+        }
+
         network.back_propagate(&expected);
+
+        for errors in network.activation_errors.iter() {
+            print!("activation_error = ");
+            print_vector(&errors);
+            println!();
+        }
     }
-
-    /*for i in 0..1 {
-        let this_data = training_data.unpack_layer_to_f32(i);
-
-        let mut hidden_activation = vec![0.0; input_to_hidden.num_outputs];
-        input_to_hidden.eval_layer(&this_data, &mut hidden_activation);
-
-        let mut output_activation = vec![0.0; input_to_hidden.num_outputs];
-        hidden_to_output.eval_layer(&hidden_activation, &mut output_activation);
-
-        print!("output:");
-        print_vector(&output_activation);
-        println!(" error = {}", sum_of_squared_error(training_data.labels[i], &output_activation));
-
-        let expected = make_expected(training_data.labels[i]);
-        let sigma_last = hidden_to_output.find_output_sigma(&output_activation, &expected);
-
-        print!("sigma last: ");
-        print_vector(&sigma_last);
-        println!();
-
-        let sigma_hidden =
-            hidden_to_output.back_propagate_layer(&hidden_activation, &sigma_last, &expected);
-
-        print!("sigma hidden: ");
-        print_vector(&sigma_hidden);
-        println!();
-
-        let sigma_first =
-            input_to_hidden.back_propagate_layer(&this_data, &sigma_hidden, &expected);
-
-        print!("sigma first: ");
-        print_vector(&sigma_first);
-        println!();
-
-        println!();
-    }*/
 }
 

@@ -4,6 +4,7 @@ use std::fmt::Display;
 use real::sigmoid_prime;
 use num_traits::{Float, NumCast};
 use rand::{Rng, Rand};
+use linear::print_vector;
 
 pub fn sigmoid<T: Float + NumCast>(x: T) -> T {
     let one: T = NumCast::from(1).unwrap();
@@ -36,8 +37,11 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
     }
 
     pub fn eval_layer(&self, activations: &Vec<T>, z: &mut Vec<T>, activations_next: &mut Vec<T>) {
+        println!("eval_layer activations: {}, z: {}, activations_next: {}",
+                 activations.len(), z.len(), activations_next.len());
         if self.num_inputs != activations.len() {
-            panic!("incorrect number of inputs to layer");
+            panic!("activations was wrong length. activations.len() = {}, num_inputs = {}",
+                   activations.len(), self.num_inputs);
         }
         if self.num_outputs != z.len() {
             panic!("z was wrong length. z.len() = {}, self.num_outputs = {}", z.len(), self.num_outputs);
@@ -49,7 +53,9 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
         self.weights.multiply_vec(activations, z);
         for i in 0..z.len() {
             z[i] = z[i] + self.biases[i];
+            print!("z="); print_vector(z); println!();
             activations_next[i] = sigmoid(z[i]);
+            print!("a="); print_vector(activations_next); println!();
         }
     }
 
@@ -66,6 +72,7 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
             let one_minus_exp_z = T::one() - exp_z;
             let d_activation_by_d_z = -exp_z / one_minus_exp_z / one_minus_exp_z;
 
+            println!("{} {}", d_cost_by_d_activation_k, d_activation_by_d_z);
             activation_errors[k] = d_cost_by_d_activation_k * d_activation_by_d_z;
         }
     }
@@ -75,13 +82,16 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
                                 activation_errors: &Vec<T>,
                                 prev_activation_errors: &mut Vec<T>) {
         //j iterates the input layer, k iterates the output layer
+        println!("Back propagate_layer. z={}, activation_errors={}, prev_activation_errors={}",
+                 z.len(), activation_errors.len(), prev_activation_errors.len());
 
         for j in 0..self.num_inputs {
             let mut total = T::zero();
             for k in 0..self.num_outputs {
+                //TODO: We are calculating sigmoid_prime too many times here
+                let sigmoid_prime_of_z_l_j = sigmoid_prime(z[k]);
                 total += self.weights.get(k, j) * activation_errors[k];
             }
-            let sigmoid_prime_of_z_l_j = sigmoid_prime(z[j]);
             prev_activation_errors[j] = total;
         }
     }
@@ -89,13 +99,13 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
 
 
 pub struct Network<T> {
-    num_inputs: usize,
-    num_outputs: usize,
+    pub num_inputs: usize,
+    pub num_outputs: usize,
 
-    layers: Vec<NetworkLayer<T>>,
-    z: Vec<Vec<T>>,
-    activations: Vec<Vec<T>>,
-    activation_errors: Vec<Vec<T>>,
+    pub layers: Vec<NetworkLayer<T>>,
+    pub z: Vec<Vec<T>>,
+    pub activations: Vec<Vec<T>>,
+    pub activation_errors: Vec<Vec<T>>,
 }
 
 impl<T: Float + Display + AddAssign + Rand> Network<T> {
@@ -106,11 +116,10 @@ impl<T: Float + Display + AddAssign + Rand> Network<T> {
 
         let mut activations = Vec::<Vec<T>>::with_capacity(layers.len() + 1);
         let mut activation_errors = Vec::<Vec<T>>::with_capacity(layers.len() + 1);
-        let mut z = Vec::<Vec<T>>::with_capacity(layers.len() + 1);
+        let mut z = Vec::<Vec<T>>::with_capacity(layers.len());
 
         activations.push(vec![T::zero(); layers[0].num_inputs]);
         activation_errors.push(vec![T::zero(); layers[0].num_inputs]);
-        z.push(vec![T::zero(); layers[0].num_inputs]);
 
         for layer in layers.iter() {
             activations.push(vec![T::zero(); layer.num_outputs]);
@@ -146,23 +155,24 @@ impl<T: Float + Display + AddAssign + Rand> Network<T> {
 
     pub fn propagate(&mut self) {
         for i in 0..self.layers.len() {
+            println!("propagate {}", i);
             let (front, back) = self.activations.split_at_mut(i + 1);
-            let this_activations = &front[0];
+            let this_activations = &front[i];
             let mut next_activations = &mut back[0];
-            self.layers[0].eval_layer(&this_activations,
+            self.layers[i].eval_layer(&this_activations,
                                       &mut self.z[i],
                                       &mut next_activations);
         }
     }
 
     pub fn back_propagate(&mut self, expected: &Vec<T>) {
-        let last_layer = self.layers.len();
+        let last_layer = self.layers.len() - 1;
 
         self.layers[last_layer].find_output_sigma(
             &self.activations[last_layer],
             &self.z[last_layer],
             expected,
-            &mut self.activation_errors[last_layer]
+            &mut self.activation_errors[last_layer],
         );
 
         self.layers[self.layers.len() - 1].find_output_sigma(
@@ -173,12 +183,13 @@ impl<T: Float + Display + AddAssign + Rand> Network<T> {
         );
 
         for i in (0..self.layers.len()).rev() {
+            println!("back_propagate, i={}", i);
             let (front, back) = self.activation_errors.split_at_mut(i + 1);
-            let mut prev_activation_errors = &mut front[0];
+            let mut prev_activation_errors = &mut front[i];
             let this_activation_errors = &back[0];
 
             self.layers[i].back_propagate_layer(
-                &self.z[i + 1],
+                &self.z[i],
                 this_activation_errors,
                 prev_activation_errors,
             );
@@ -196,3 +207,12 @@ impl<T: Float + Display + AddAssign + Rand> Network<T> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use network::sigmoid;
+
+    #[test]
+    fn test_sigmoid() {
+        assert_approx_eq!(sigmoid(0.0f32), 0.5f32);
+    }
+}

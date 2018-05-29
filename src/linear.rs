@@ -73,6 +73,12 @@ impl<T: Clone + Mul + AddAssign + Num + Display> Matrix<T>
 }
 
 
+pub fn print_vector<T: Display>(vec: &Vec<T>) {
+    for c in vec.iter() {
+        print!("{} ", c);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use linear::Matrix;
@@ -91,6 +97,7 @@ mod tests {
         let mut v_out: Vec<i32> = vec![0, 0];
 
         mat.multiply_vec(&vec, &mut v_out);
+
 
         assert_eq!(v_out.len(), 2);
 
