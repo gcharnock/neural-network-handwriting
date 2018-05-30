@@ -1,4 +1,3 @@
-
 #[cfg_attr(test, macro_use)]
 extern crate assert_approx_eq;
 
@@ -61,7 +60,7 @@ mod data {
 
         pub fn unpack_layer_to_f32(&self, layer_number: usize) -> Vec<f32> {
             let layer = &self.data[layer_number];
-            return layer.iter().map(|v| (*v as f32/255.0)).collect();
+            return layer.iter().map(|v| (*v as f32 / 255.0)).collect();
         }
     }
 
@@ -140,19 +139,9 @@ mod data {
 use std::fmt::Display;
 use network::{Network, NetworkLayer};
 use linear::print_vector;
+use rand::Rand;
+use num_traits::NumCast;
 
-fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
-    let label = label as usize;
-    let mut total = 0.0;
-    for i in 0..output.len() {
-        if i == label {
-            total += (output[i] - 1.0) * (output[i] - 1.0);
-        } else {
-            total += output[i] * output[i];
-        }
-    }
-    return total;
-}
 
 fn make_expected(label: u8) -> Vec<f32> {
     let mut expected = Vec::with_capacity(10);
@@ -168,10 +157,27 @@ fn make_expected(label: u8) -> Vec<f32> {
 
 
 fn main() {
-    let mut rng = rand::thread_rng();
+    let mut gen_w = rand::thread_rng();
+    let mut gen_b = rand::thread_rng();
+
+    let mut gen_weights = |_, _| {
+        let r: f32 = Rand::rand(&mut gen_w);
+        r - 0.5f32
+    };
+
+    let mut gen_biases = |_| {
+        let r: f32 = Rand::rand(&mut gen_b);
+        r - 0.5f32
+    };
+
     let training_data = data::read_training_data();
-    let input_to_hidden = NetworkLayer::<f32>::new(training_data.len(), 30, &mut rng);
-    let hidden_to_output = NetworkLayer::<f32>::new(30, 10, &mut rng);
+    let input_to_hidden = NetworkLayer::<f32>::new(
+        training_data.len(), 30,
+        &mut gen_weights, &mut gen_biases);
+
+    let hidden_to_output = NetworkLayer::<f32>::new(
+        30, 10,
+        &mut gen_weights, &mut gen_biases);
 
     let layers = vec![input_to_hidden, hidden_to_output];
     let mut network = Network::new(layers);
