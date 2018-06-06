@@ -1,23 +1,8 @@
-use num_traits::Float;
 use std::ops::Mul;
-use std::ops::Add;
 use std::ops::AddAssign;
 use std::fmt::Display;
 use num_traits::Num;
 
-pub fn vec_add<T: Add + Float + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T>
-    where
-        T: Add<Output=T> {
-    if a.len() != b.len() {
-        panic!("cannot add vectors of different lengths");
-    }
-
-    let mut out = vec![T::zero(); a.len()];
-    for i in 0..a.len() {
-        out[i] = a[i].clone() + b[i].clone();
-    }
-    return out;
-}
 
 pub struct Matrix<T> {
     cols: usize,
@@ -39,6 +24,15 @@ impl<T: Clone + Mul + AddAssign + Num + Display> Matrix<T>
             }
         }
         Matrix { rows, cols, values }
+    }
+
+    pub fn from_buffer(rows: usize, cols: usize, buffer: Vec<T>) -> Matrix<T> {
+        let len = rows * cols;
+        if len != buffer.len() {
+            panic!("Cannot make matrix from wrong sized buffer. buffer len = {} len = {}",
+                   buffer.len(), len);
+        }
+        Matrix { rows, cols, values: buffer }
     }
 
     fn set(&mut self, row: usize, col: usize, value: T) {
@@ -87,11 +81,11 @@ mod tests {
 
     #[test]
     fn matrix_new() {
-        let mut mat1 = Matrix::<i32>::new(1, 1, &mut |_, _| 4);
+        let mat1 = Matrix::<i32>::new(1, 1, &mut |_, _| 4);
         assert_eq!(mat1.get(0, 0), 4);
 
 
-        let mut mat2 = Matrix::<i32>::new(2, 2,
+        let mat2 = Matrix::<i32>::new(2, 2,
                                           &mut |row, col| row as i32 * 100 + col as i32);
         assert_eq!(mat2.get(0, 0), 0);
         assert_eq!(mat2.get(1, 0), 100);

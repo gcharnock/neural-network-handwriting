@@ -1,14 +1,19 @@
 use linear::Matrix;
 use std::ops::AddAssign;
 use std::fmt::Display;
-use real::sigmoid_prime;
 use num_traits::{Float, NumCast};
-use rand::{Rng, Rand};
+use rand::{Rand, Rng};
 use linear::print_vector;
 
-pub fn sigmoid<T: Float >(x: T) -> T {
+pub fn sigmoid<T: Float>(x: T) -> T {
     let one: T = T::one();
     one / (one + Float::exp(-x))
+}
+
+pub fn sigmoid_vec<T: Float>(x: &Vec<T>, out: &mut Vec<T>) {
+    for i in 0..x.len() {
+        out[i] = sigmoid(x[i]);
+    }
 }
 
 pub fn sigmoid_deriv<T: Float>(x: T) -> T {
@@ -17,14 +22,14 @@ pub fn sigmoid_deriv<T: Float>(x: T) -> T {
     exp_x / one_plus_exp_x / one_plus_exp_x
 }
 
-fn sum_of_squared_error(label: u8, output: &Vec<f32>) -> f32 {
+fn sum_of_squared_error<T: Float>(label: u8, output: &Vec<T>) -> T {
     let label = label as usize;
-    let mut total = 0.0;
+    let mut total = T::zero();
     for i in 0..output.len() {
         if i == label {
-            total += (output[i] - 1.0) * (output[i] - 1.0);
+            total = total + (output[i] - T::one()) * (output[i] - T::one());
         } else {
-            total += output[i] * output[i];
+            total = total + output[i] * output[i];
         }
     }
     return total;
@@ -47,7 +52,7 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
                        gen_biases: &mut GB) -> NetworkLayer<T>
         where GW: FnMut(usize, usize) -> T,
               GB: FnMut(usize) -> T {
-        let mut biases = Vec::with_capacity(num_inputs);
+        let mut biases = Vec::with_capacity(num_outputs);
         for i in 0..num_inputs {
             biases.push(gen_biases(i));
         }
@@ -60,7 +65,26 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
         };
     }
 
-    pub fn eval_layer(&self, activations: &Vec<T>, z: &mut Vec<T>, activations_next: &mut Vec<T>) {
+    pub fn new_random<R: Rng>(num_inputs: usize, num_outputs: usize, gen: &mut R)
+                              -> NetworkLayer<T> {
+        let mut biases = Vec::with_capacity(num_outputs);
+        let mut weights = Vec::with_capacity(num_inputs * num_outputs);
+        for _i in 0..num_inputs {
+            biases.push(Rand::rand(gen));
+        }
+        for _i in 0..num_inputs * num_outputs {
+            weights.push(Rand::rand(gen));
+        }
+        return NetworkLayer {
+            num_inputs,
+            num_outputs,
+
+            weights: Matrix::from_buffer(num_outputs, num_inputs, weights),
+            biases,
+        };
+    }
+
+    pub fn progagate(&self, activations: &Vec<T>, z: &mut Vec<T>, activations_next: &mut Vec<T>) {
         println!("eval_layer activations: {}, z: {}, activations_next: {}",
                  activations.len(), z.len(), activations_next.len());
         if self.num_inputs != activations.len() {
@@ -77,30 +101,23 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
         self.weights.multiply_vec(activations, z);
         for i in 0..z.len() {
             z[i] = z[i] + self.biases[i];
-            print!("z=");
             print_vector(z);
-            println!();
             activations_next[i] = sigmoid(z[i]);
-            print!("a=");
             print_vector(activations_next);
-            println!();
         }
     }
 
-    pub fn find_output_sigma(&self,
-                             activations: &Vec<T>,
-                             z: &Vec<T>,
-                             expected: &Vec<T>,
-                             activation_errors: &mut Vec<T>) {
+    pub fn find_output_activation_error(&self,
+                                        activations: &Vec<T>,
+                                        z: &Vec<T>,
+                                        expected: &Vec<T>,
+                                        activation_errors: &mut Vec<T>) {
         //Compute the output layer error
         for k in 0..self.num_outputs {
             let d_cost_by_d_activation_k: T = T::from(2.0).unwrap()
                 * (activations[k] - expected[k]);
-            let exp_z = Float::exp(-z[k]);
-            let one_minus_exp_z = T::one() - exp_z;
-            let d_activation_by_d_z = -exp_z / one_minus_exp_z / one_minus_exp_z;
+            let d_activation_by_d_z = sigmoid_deriv(z[k]);
 
-            println!("{} {}", d_cost_by_d_activation_k, d_activation_by_d_z);
             activation_errors[k] = d_cost_by_d_activation_k * d_activation_by_d_z;
         }
     }
@@ -110,14 +127,11 @@ impl<T: Clone + AddAssign + Display + Rand + Float + NumCast> NetworkLayer<T>
                                 activation_errors: &Vec<T>,
                                 prev_activation_errors: &mut Vec<T>) {
         //j iterates the input layer, k iterates the output layer
-        println!("Back propagate_layer. z={}, activation_errors={}, prev_activation_errors={}",
-                 z.len(), activation_errors.len(), prev_activation_errors.len());
-
         for j in 0..self.num_inputs {
             let mut total = T::zero();
             for k in 0..self.num_outputs {
                 //TODO: We are calculating sigmoid_prime too many times here
-                let sigmoid_prime_of_z_l_j = sigmoid_prime(z[k]);
+                let sigmoid_prime_of_z_l_j = sigmoid_deriv(z[k]);
                 total += self.weights.get(k, j) * activation_errors[k];
             }
             prev_activation_errors[j] = total;
@@ -187,23 +201,23 @@ impl<T: Float + Display + AddAssign + Rand> Network<T> {
             let (front, back) = self.activations.split_at_mut(i + 1);
             let this_activations = &front[i];
             let mut next_activations = &mut back[0];
-            self.layers[i].eval_layer(&this_activations,
-                                      &mut self.z[i],
-                                      &mut next_activations);
+            self.layers[i].progagate(&this_activations,
+                                     &mut self.z[i],
+                                     &mut next_activations);
         }
     }
 
     pub fn back_propagate(&mut self, expected: &Vec<T>) {
         let last_layer = self.layers.len() - 1;
 
-        self.layers[last_layer].find_output_sigma(
+        self.layers[last_layer].find_output_activation_error(
             &self.activations[last_layer],
             &self.z[last_layer],
             expected,
             &mut self.activation_errors[last_layer],
         );
 
-        self.layers[self.layers.len() - 1].find_output_sigma(
+        self.layers[self.layers.len() - 1].find_output_activation_error(
             &self.activations[last_layer],
             &self.z[last_layer],
             expected,
@@ -242,6 +256,11 @@ mod tests {
     use network::Network;
     use network::NetworkLayer;
     use network::sum_of_squared_error;
+    use num_traits::Float;
+    use rand::thread_rng;
+    use rand::Rand;
+
+    const NUMERIC_ERROR: f64 = 1e-3;
 
     #[test]
     fn test_sigmoid() {
@@ -257,32 +276,34 @@ mod tests {
 
         let y = sigmoid(x);
         let dy = sigmoid(x + dx) - y;
-        println!("{} {} {} {}", x, dx, y, dy);
-        assert_approx_eq!(dx/dy, sigmoid_deriv(x));
+
+        let numeric = dy / dx;
+        let analytic = sigmoid_deriv(x);
+        assert_approx_eq!(numeric, analytic, NUMERIC_ERROR);
     }
 
     #[test]
     fn test_layer_zeroed() {
-        let mut layer =
+        let layer =
             NetworkLayer::<f32>::new(1, 1,
                                      &mut |_, _| 0.0f32, &mut |_| 0.0f32);
         let a0 = vec![0.0];
         let mut z1 = vec![0.0];
         let mut a1 = vec![0.0];
-        layer.eval_layer(&a0, &mut z1, &mut a1);
+        layer.progagate(&a0, &mut z1, &mut a1);
         assert_approx_eq!(z1[0], 0.0);
         assert_approx_eq!(a1[0], 0.5);
     }
 
     #[test]
     fn test_layer_propagate_simple() {
-        let mut layer =
+        let layer =
             NetworkLayer::<f32>::new(1, 1,
                                      &mut |_, _| 0.2f32, &mut |_| -0.7f32);
         let a0 = vec![0.5];
         let mut z1 = vec![0.0];
         let mut a1 = vec![0.0];
-        layer.eval_layer(&a0, &mut z1, &mut a1);
+        layer.progagate(&a0, &mut z1, &mut a1);
         assert_approx_eq!(z1[0], -0.6);
         assert_approx_eq!(a1[0], 0.3543437);
     }
@@ -296,41 +317,100 @@ mod tests {
     }
 
     #[test]
-    fn test_layer_find_output_sigma_simple() {
-        let mut layer =
-            NetworkLayer::<f32>::new(1, 1,
-                                     &mut |_, _| 0.2f32, &mut |_| -0.7f32);
+    fn test_layer_find_activation_error() {
+        let mut gen = thread_rng();
+        let layer =
+            NetworkLayer::<f64>::new_random(3, 2, &mut gen);
 
-        let d = 0.00001f32;
+        fn compute_cost(z1: &Vec<f64>) -> f64 {
+            let a1 = vec![
+                sigmoid(z1[0]),
+                sigmoid(z1[1])
+            ];
+            sum_of_squared_error(0, &a1)
+        }
 
-        let mut z1 = vec![0.3];
-        let mut d_z1 = vec![z1[0] + d];
+        let z1 = vec![
+            Rand::rand(&mut gen),
+            Rand::rand(&mut gen)
+        ];
+        let d = 0.00000001;
+        let z_plus_dz1 = vec![
+            z1[0] + d,
+            z1[1]
+        ];
 
-        let mut a1 = vec![sigmoid(z1[0])];
-        let mut d_a1 = vec![sigmoid(d_z1[0])];
+        let c = compute_cost(&z1);
+        let dc = compute_cost(&z_plus_dz1) - c;
 
-        let expected = vec![1.0];
+        let numeric = dc / d;
 
-        let c = sum_of_squared_error(0, &a1);
-        let d_c = sum_of_squared_error(0, &d_a1);
+        let expected = vec![1.0, 0.0];
 
-        let dc_by_d_z = (d_c - c)/(d_z1[0] - z1[0]);
+        let mut a1_e = vec![0.0, 0.0];
+        let a1 = vec![
+            sigmoid(z1[0]),
+            sigmoid(z1[0])
+        ];
+        layer.find_output_activation_error(&a1, &z1, &expected, &mut a1_e);
 
-        let mut a1_e = vec![0.0];
-        layer.find_output_sigma(&a1, &z1, &expected, &mut a1_e);
+        assert_approx_eq!(numeric, a1_e[0], NUMERIC_ERROR);
+    }
 
-        assert_approx_eq!(dc_by_d_z, a1_e[0]);
+    #[test]
+    fn test_layer_back_propagate_simple() {
+        let mut gen = thread_rng();
+        let layer =
+            NetworkLayer::<f64>::new_random(3, 2, &mut gen);
+
+        let compute_cost = |a0: &Vec<f64>| {
+            let mut z1 = vec![0.0, 0.0];
+            let mut a1 = vec![0.0, 0.0];
+            layer.progagate(a0, &mut z1, &mut a1);
+            sum_of_squared_error(0, &a1)
+        };
+
+        let a0 = vec![
+            Rand::rand(&mut gen),
+            Rand::rand(&mut gen),
+            Rand::rand(&mut gen)
+        ];
+        let d= 0.00000001;
+
+        let a0_plus_d = vec![
+            a0[0] + d,
+            a0[1],
+            a0[2]
+        ];
+
+        let c = compute_cost(&a0);
+        let dc = compute_cost(&a0_plus_d) - c;
+
+        let numeric = dc / d;
+
+        let expected = vec![1.0, 0.0];
+        let mut a1_e = vec![0.0, 0.0];
+
+        let mut z1 = vec![0.0, 0.0];
+        let mut a1 = vec![0.0, 0.0];
+        layer.progagate(&a0, &mut z1, &mut a1);
+
+        let mut a0_e = vec![0.0, 0.0, 0.0];
+        layer.find_output_activation_error(&a1, &z1, &expected, &mut a1_e);
+        layer.back_propagate_layer(&z1, &a1_e, &mut a0_e);
+
+        assert_approx_eq!(numeric, a0_e[0], NUMERIC_ERROR);
     }
 
 
     #[test]
     fn test_propagate() {
-        let mut layer0 =
+        let layer0 =
             NetworkLayer::<f32>::new(1, 1,
                                      &mut |_, _| 0.0f32, &mut |_| 0.0f32);
-        let mut layer1 =
+        let layer1 =
             NetworkLayer::<f32>::new(1, 1,
                                      &mut |_, _| 0.0f32, &mut |_| 0.0f32);
-        let mut net = Network::new(vec![layer0, layer1]);
+        let net = Network::new(vec![layer0, layer1]);
     }
 }
